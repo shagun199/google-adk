@@ -1,0 +1,363 @@
+sources:
+  my-pg-source:
+    kind: postgres
+    host: 127.0.0.1
+    port: 5432
+    database: toolbox_db
+    user: admin
+    password: admin
+
+tools:
+  # Hotel Tools
+  search-hotels-by-name:
+    kind: postgres-sql
+    source: my-pg-source
+    description: Search for hotels based on name.
+    parameters:
+      - name: name
+        type: string
+        description: The name of the hotel.
+    statement: SELECT * FROM hotels WHERE name ILIKE '%' || $1 || '%';
+
+  search-hotels-by-location:
+    kind: postgres-sql
+    source: my-pg-source
+    description: Search for hotels based on location. Result is sorted by price from least to most expensive.
+    parameters:
+      - name: location
+        type: string
+        description: The location of the hotel.
+    statement: |
+      SELECT *
+      FROM hotels
+      WHERE location ILIKE '%' || $1 || '%'
+      ORDER BY
+        CASE price_tier
+          WHEN 'Midscale' THEN 1
+          WHEN 'Upper Midscale' THEN 2
+          WHEN 'Upscale' THEN 3
+          WHEN 'Upper Upscale' THEN 4
+          WHEN 'Luxury' THEN 5
+          ELSE 99
+        END;
+
+  search-hotels-by-price-tier:
+    kind: postgres-sql
+    source: my-pg-source
+    description: Search for hotels based on price tier and optionally location.
+    parameters:
+      - name: price_tier
+        type: string
+        description: The price tier (Midscale, Upper Midscale, Upscale, Upper Upscale, Luxury).
+      - name: location
+        type: string
+        description: Optional location filter.
+        required: false
+    statement: |
+      SELECT * FROM hotels 
+      WHERE price_tier = $1 
+      AND ($2 IS NULL OR location ILIKE '%' || $2 || '%')
+      ORDER BY rating DESC;
+
+  get-hotel-amenities:
+    kind: postgres-sql
+    source: my-pg-source
+    description: Get amenities for a specific hotel.
+    parameters:
+      - name: hotel_id
+        type: integer
+        description: The ID of the hotel.
+    statement: |
+      SELECT h.name, h.location, a.amenity_name, a.description
+      FROM hotels h
+      JOIN hotel_amenities ha ON h.id = ha.hotel_id
+      JOIN amenities a ON ha.amenity_id = a.id
+      WHERE h.id = $1;
+
+  # Flight Tools
+  search-flights-by-route:
+    kind: postgres-sql
+    source: my-pg-source
+    description: Search flights between two locations on a specific date.
+    parameters:
+      - name: departure_city
+        type: string
+        description: The departure city.
+      - name: arrival_city
+        type: string
+        description: The arrival city.
+      - name: departure_date
+        type: string
+        description: The departure date (YYYY-MM-DD format).
+    statement: |
+      SELECT * FROM flights 
+      WHERE departure_city ILIKE '%' || $1 || '%' 
+      AND arrival_city ILIKE '%' || $2 || '%'
+      AND DATE(departure_time) = $3
+      ORDER BY price ASC;
+
+  search-flights-by-airline:
+    kind: postgres-sql
+    source: my-pg-source
+    description: Search flights by airline with optional route filtering.
+    parameters:
+      - name: airline
+        type: string
+        description: The airline name.
+      - name: departure_city
+        type: string
+        description: Optional departure city filter.
+        required: false
+      - name: arrival_city
+        type: string
+        description: Optional arrival city filter.
+        required: false
+    statement: |
+      SELECT * FROM flights 
+      WHERE airline ILIKE '%' || $1 || '%'
+      AND ($2 IS NULL OR departure_city ILIKE '%' || $2 || '%')
+      AND ($3 IS NULL OR arrival_city ILIKE '%' || $3 || '%')
+      ORDER BY departure_time;
+
+  get-available-flights:
+    kind: postgres-sql
+    source: my-pg-source
+    description: Get available flights with remaining seats greater than specified minimum.
+    parameters:
+      - name: min_seats
+        type: integer
+        description: Minimum number of available seats required.
+        required: false
+    statement: |
+      SELECT * FROM flights 
+      WHERE available_seats >= COALESCE($1, 1)
+      AND departure_time > NOW()
+      ORDER BY departure_time;
+
+  # Restaurant Tools
+  search-restaurants-by-cuisine:
+    kind: postgres-sql
+    source: my-pg-source
+    description: Search restaurants by cuisine type and optional location.
+    parameters:
+      - name: cuisine_type
+        type: string
+        description: The type of cuisine.
+      - name: location
+        type: string
+        description: Optional location filter.
+        required: false
+    statement: |
+      SELECT * FROM restaurants 
+      WHERE cuisine_type ILIKE '%' || $1 || '%'
+      AND ($2 IS NULL OR location ILIKE '%' || $2 || '%')
+      ORDER BY rating DESC;
+
+  search-restaurants-by-location:
+    kind: postgres-sql
+    source: my-pg-source
+    description: Search restaurants by location with rating filter.
+    parameters:
+      - name: location
+        type: string
+        description: The location to search in.
+      - name: min_rating
+        type: integer
+        description: Minimum rating (1-5 scale).
+        required: false
+    statement: |
+      SELECT * FROM restaurants 
+      WHERE location ILIKE '%' || $1 || '%'
+      AND rating >= COALESCE($2, 0)
+      ORDER BY rating DESC, name;
+
+  get-restaurant-menu:
+    kind: postgres-sql
+    source: my-pg-source
+    description: Get menu items for a specific restaurant.
+    parameters:
+      - name: restaurant_id
+        type: integer
+        description: The ID of the restaurant.
+    statement: |
+      SELECT r.name as restaurant_name, r.location, m.item_name, m.description, m.price, m.category
+      FROM restaurants r
+      JOIN menu_items m ON r.id = m.restaurant_id
+      WHERE r.id = $1
+      ORDER BY m.category, m.price;
+
+  # Car Rental Tools
+  search-cars-by-location:
+    kind: postgres-sql
+    source: my-pg-source
+    description: Search available rental cars by pickup location and date range.
+    parameters:
+      - name: pickup_location
+        type: string
+        description: The pickup location.
+      - name: pickup_date
+        type: string
+        description: The pickup date (YYYY-MM-DD format).
+      - name: return_date
+        type: string
+        description: The return date (YYYY-MM-DD format).
+    statement: |
+      SELECT * FROM rental_cars 
+      WHERE pickup_location ILIKE '%' || $1 || '%'
+      AND available = true
+      AND $2::date >= CURRENT_DATE
+      ORDER BY daily_rate ASC;
+
+  search-cars-by-type:
+    kind: postgres-sql
+    source: my-pg-source
+    description: Search rental cars by vehicle type and optional location.
+    parameters:
+      - name: vehicle_type
+        type: string
+        description: The type of vehicle (Economy, Compact, Mid-size, Full-size, SUV, Luxury).
+      - name: pickup_location
+        type: string
+        description: Optional pickup location filter.
+        required: false
+    statement: |
+      SELECT * FROM rental_cars 
+      WHERE vehicle_type = $1
+      AND available = true
+      AND ($2 IS NULL OR pickup_location ILIKE '%' || $2 || '%')
+      ORDER BY daily_rate ASC;
+
+  # Booking Management Tools
+  create-booking:
+    kind: postgres-sql
+    source: my-pg-source
+    description: Create a new booking record.
+    parameters:
+      - name: customer_name
+        type: string
+        description: Name of the customer.
+      - name: booking_type
+        type: string
+        description: Type of booking (hotel, flight, restaurant, car_rental).
+      - name: service_id
+        type: integer
+        description: ID of the booked service.
+      - name: booking_date
+        type: string
+        description: Date of the booking (YYYY-MM-DD format).
+      - name: total_amount
+        type: integer
+        description: Total booking amount.
+    statement: |
+      INSERT INTO bookings (customer_name, booking_type, service_id, booking_date, total_amount, status)
+      VALUES ($1, $2, $3, $4::date, $5, 'confirmed')
+      RETURNING *;
+
+  get-customer-bookings:
+    kind: postgres-sql
+    source: my-pg-source
+    description: Retrieve all bookings for a specific customer.
+    parameters:
+      - name: customer_name
+        type: string
+        description: Name of the customer.
+    statement: |
+      SELECT * FROM bookings 
+      WHERE customer_name ILIKE '%' || $1 || '%'
+      ORDER BY booking_date DESC;
+
+  cancel-booking:
+    kind: postgres-sql
+    source: my-pg-source
+    description: Cancel a booking by ID.
+    parameters:
+      - name: booking_id
+        type: integer
+        description: ID of the booking to cancel.
+    statement: |
+      UPDATE bookings 
+      SET status = 'cancelled', updated_at = NOW()
+      WHERE id = $1
+      RETURNING *;
+
+toolsets:
+  hotels_toolset:
+    - search-hotels-by-name
+    - search-hotels-by-location
+    - search-hotels-by-price-tier
+    - get-hotel-amenities
+
+  flights_toolset:
+    - search-flights-by-route
+    - search-flights-by-airline
+    - get-available-flights
+
+  restaurants_toolset:
+    - search-restaurants-by-cuisine
+    - search-restaurants-by-location
+    - get-restaurant-menu
+
+  car_rental_toolset:
+    - search-cars-by-location
+    - search-cars-by-type
+
+  booking_management_toolset:
+    - create-booking
+    - get-customer-bookings
+    - cancel-booking
+
+# # Agent Configurations
+# agents:
+#   hotel_agent:
+#     name: "Hotel Booking Agent"
+#     description: "Specialized in finding and recommending hotels based on various criteria"
+#     toolset: hotels_toolset
+#     prompt: |
+#       You are a hotel booking specialist. Help users find the perfect hotel based on their preferences for location, price range, amenities, and other requirements. Always provide detailed information about available options and make personalized recommendations.
+
+#   flight_agent:
+#     name: "Flight Booking Agent"
+#     description: "Handles flight searches, airline preferences, and travel routing"
+#     toolset: flights_toolset
+#     prompt: |
+#       You are a flight booking expert. Assist users in finding the best flights based on their travel dates, preferred airlines, budget constraints, and route preferences. Provide options sorted by price and convenience.
+
+#   restaurant_agent:
+#     name: "Restaurant Recommendation Agent"
+#     description: "Finds restaurants based on cuisine preferences and location"
+#     toolset: restaurants_toolset
+#     prompt: |
+#       You are a restaurant recommendation specialist. Help users discover great dining options based on their cuisine preferences, location, budget, and dietary requirements. Provide detailed information about restaurants and their menus.
+
+#   car_rental_agent:
+#     name: "Car Rental Agent"
+#     description: "Manages car rental searches and bookings"
+#     toolset: car_rental_toolset
+#     prompt: |
+#       You are a car rental specialist. Help users find the right vehicle for their needs based on pickup location, rental period, vehicle type preferences, and budget. Provide clear pricing and availability information.
+
+#   booking_agent:
+#     name: "Booking Management Agent"
+#     description: "Handles booking creation, retrieval, and cancellation across all services"
+#     toolset: booking_management_toolset
+#     prompt: |
+#       You are a booking management specialist. Handle all aspects of booking management including creating new bookings, retrieving existing bookings, and processing cancellations. Ensure all booking details are accurate and provide clear confirmation information.
+
+#   travel_coordinator:
+#     name: "Travel Coordinator"
+#     description: "Main coordinator that delegates requests to specialized agents"
+#     prompt: |
+#       You are the main travel coordinator. Analyze user requests and delegate them to the appropriate specialized agents:
+#       - Hotel-related queries → hotel_agent
+#       - Flight-related queries → flight_agent  
+#       - Restaurant/dining queries → restaurant_agent
+#       - Car rental queries → car_rental_agent
+#       - Booking management → booking_agent
+
+#       For complex requests involving multiple services, coordinate between agents and provide a comprehensive response.
+#     agents:
+#       - hotel_agent
+#       - flight_agent
+#       - restaurant_agent
+#       - car_rental_agent
+#       - booking_agent

@@ -15,7 +15,7 @@ firebase_admin.initialize_app(cred)
 
 api_key=os.getenv("FIREBASE_WEB_API_KEY")
 
-print('api_key', api_key)
+# print('api_key', api_key)
 url = f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key={api_key}"
 
 async def authenticateUser(phone_number):
